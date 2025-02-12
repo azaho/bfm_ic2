@@ -12,10 +12,11 @@ class Subject:
         This class is used to load the neural data for a given subject and trial.
         It also contains methods to get the data for a given electrode and trial, and to get the spectrogram for a given electrode and trial.
     """
-    def __init__(self, subject_id, allow_corrupted=False, cache=True):
+    def __init__(self, subject_id, allow_corrupted=False, cache=True, dtype=np.float32):
         self.subject_id = subject_id
         self.allow_corrupted = allow_corrupted
         self.cache = cache
+        self.dtype = dtype  # Store dtype as instance variable
 
         self.localization_data = self._load_localization_data()
         self.electrode_labels = self._get_all_electrode_names()
@@ -98,19 +99,21 @@ class Subject:
     def cache_neural_data(self, trial_id):
         assert self.cache, "Cache is not enabled; not able to cache neural data."
         if trial_id in self.neural_data_cache: return  # no need to cache again
-        if trial_id not in self.h5_files:
-            neural_data_file = os.path.join(ROOT_DIR, f'sub_{self.subject_id}_trial{trial_id:03}.h5')
-            self.h5_files[trial_id] = h5py.File(neural_data_file, 'r', locking=False)
-
-        self.electrode_data_length[trial_id] = self.h5_files[trial_id]['data'][self.h5_neural_data_keys[self.electrode_labels[0]]].shape[0]
-        self.neural_data_cache[trial_id] = np.zeros((len(self.electrode_labels), self.electrode_data_length[trial_id]))
-        for electrode_label, electrode_id in self.electrode_ids.items():
-            neural_data_key = self.h5_neural_data_keys[electrode_label]
-            self.neural_data_cache[trial_id][electrode_id] = self.h5_files[trial_id]['data'][neural_data_key][:]
         
-        # close the h5 file and collect garbage
-        self.h5_files[trial_id].close()
-        del self.h5_files[trial_id]
+        # Open file with context manager to ensure proper closing
+        neural_data_file = os.path.join(ROOT_DIR, f'sub_{self.subject_id}_trial{trial_id:03}.h5')
+        with h5py.File(neural_data_file, 'r', locking=False) as f:
+            # Get data length first
+            self.electrode_data_length[trial_id] = f['data'][self.h5_neural_data_keys[self.electrode_labels[0]]].shape[0]
+            # Pre-allocate array with specific dtype to reduce memory
+            self.neural_data_cache[trial_id] = np.zeros((len(self.electrode_labels), 
+                                                        self.electrode_data_length[trial_id]), 
+                                                        dtype=self.dtype)
+            # Load data
+            for electrode_label, electrode_id in self.electrode_ids.items():
+                neural_data_key = self.h5_neural_data_keys[electrode_label]
+                self.neural_data_cache[trial_id][electrode_id] = f['data'][neural_data_key][:].astype(self.dtype)
+
     def _calculate_laplacian_rereferencing_addon(self, trial_id):
         assert trial_id in self.neural_data_cache, "Trial data must be cached before Laplacian rereferencing can be applied."
         neural_data_cache = self.neural_data_cache[trial_id]
@@ -171,7 +174,7 @@ class Subject:
         else:
             if trial_id not in self.h5_files: self.open_neural_data_file(trial_id)
             neural_data_key = self.h5_neural_data_keys[electrode_label]
-            return self.h5_files[trial_id]['data'][neural_data_key][window_from:window_to]
+            return self.h5_files[trial_id]['data'][neural_data_key][window_from:window_to].astype(self.dtype)
 
     def get_all_electrode_data(self, trial_id, window_from=None, window_to=None):
         if trial_id not in self.electrode_data_length: self.load_neural_data(trial_id)
@@ -180,12 +183,60 @@ class Subject:
         if self.cache: 
             return self.neural_data_cache[trial_id][:, window_from:window_to]
         else:
-            all_electrode_data = np.zeros((len(self.electrode_labels), window_to-window_from))
+            all_electrode_data = np.zeros((len(self.electrode_labels), window_to-window_from), dtype=self.dtype)
             for electrode_label, electrode_id in self.electrode_ids.items():
                 all_electrode_data[electrode_id] = self.get_electrode_data(electrode_label, trial_id, window_from=window_from, window_to=window_to)
             return all_electrode_data
 
+
 if __name__ == "__main__":
-    subject = Subject(3, cache=False)
+    # This code checks the memory usage of the Subject class for a given trial.
+    # Subject 3 trial 0 weights aeound 3.5GB on the disk, which is achieved when using bfloat16 dtype.
+    # When using np.float32, the numpy array weighs around 6-7GB.
+    import psutil
+    from ml_dtypes import bfloat16
+    import sys
+    process = psutil.Process()
+
+    def print_memory_usage(label):
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        print(f"{label}: {memory_mb:.2f} MB")
+
+    print_memory_usage("Initial RAM usage")
+    
+    subject = Subject(3, cache=True, dtype=bfloat16)
+    print_memory_usage("After creating Subject")
+    
+    # Print size of major attributes
+    print("\nSize of major attributes:")
+    for attr_name, attr_value in subject.__dict__.items():
+        if isinstance(attr_value, (dict, list, np.ndarray)):
+            size_mb = sys.getsizeof(attr_value) / 1024 / 1024
+            if isinstance(attr_value, dict):
+                # For dictionaries, also check values
+                for v in attr_value.values():
+                    if isinstance(v, np.ndarray):
+                        size_mb += v.nbytes / 1024 / 1024
+            elif isinstance(attr_value, np.ndarray):
+                size_mb = attr_value.nbytes / 1024 / 1024
+            print(f"{attr_name}: {size_mb:.2f} MB")
+    
     subject.load_neural_data(0)
-    print(subject.get_all_electrode_data(0, 0, 100).shape)
+    print_memory_usage("\nAfter loading neural data")
+    
+    data = subject.get_all_electrode_data(0, 0, 100)
+    print_memory_usage("After getting electrode data")
+    
+    # Print shape and memory info of the cached data
+    if subject.neural_data_cache:
+        for trial_id, array in subject.neural_data_cache.items():
+            print(f"\nTrial {trial_id} cache info:")
+            print(f"Shape: {array.shape}")
+            print(f"Dtype: {array.dtype}")
+            print(f"Memory usage: {array.nbytes / 1024 / 1024:.2f} MB")
+
+    import gc
+    gc.collect()
+    print_memory_usage("After garbage collection")
+
+    print(f"Data shape: {data.shape}")

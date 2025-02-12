@@ -1,8 +1,10 @@
 # bfm_ic
 
-To run the script, you need to install the following packages:
+First, create a virtual environment and install the packages:
 ```
-pip install beautifulsoup4 requests torch torchvision h5py pandas scipy numpy matplotlib seaborn wandb scikit-learn
+python -m venv .venv
+source .venv/bin/activate
+pip install beautifulsoup4 requests torch torchvision h5py pandas scipy numpy matplotlib seaborn wandb scikit-learn psutil ml_dtypes
 ```
 then install xformers:
 ```
