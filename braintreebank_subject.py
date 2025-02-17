@@ -4,16 +4,16 @@ import json
 import pandas as pd
 import numpy as np
 
-os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
-ROOT_DIR = "braintreebank"
+from btbench_config import *
 
-class Subject:
+class BrainTreebankSubject:
     """ 
         This class is used to load the neural data for a given subject and trial.
         It also contains methods to get the data for a given electrode and trial, and to get the spectrogram for a given electrode and trial.
     """
-    def __init__(self, subject_id, allow_corrupted=False, cache=True, dtype=np.float32):
+    def __init__(self, subject_id, allow_corrupted=True, cache=False, dtype=np.float32):
         self.subject_id = subject_id
+        self.subject_identifier = f'btbank{subject_id}'
         self.allow_corrupted = allow_corrupted
         self.cache = cache
         self.dtype = dtype  # Store dtype as instance variable
@@ -32,6 +32,8 @@ class Subject:
         # For downstream Laplacian rereferencing
         self.laplacian_electrodes, self.electrode_neighbors = self._get_all_laplacian_electrodes()
 
+    def get_n_electrodes(self):
+        return len(self.electrode_labels)
     def _load_localization_data(self):
         """Load localization data for this electrode's subject from depth-wm.csv"""
         loc_file = os.path.join(ROOT_DIR, f'localization/sub_{self.subject_id}/depth-wm.csv')
@@ -128,8 +130,8 @@ class Subject:
             self.neural_data_cache = {}
             self.h5_files = {}
         else:
-            del self.neural_data_cache[trial_id]
-            del self.h5_files[trial_id]
+            if trial_id in self.neural_data_cache: del self.neural_data_cache[trial_id]
+            if trial_id in self.h5_files: del self.h5_files[trial_id]
     def open_neural_data_file(self, trial_id):
         assert not self.cache, "Cache is enabled; Use cache_neural_data() instead."
         if trial_id in self.h5_files: return
@@ -170,11 +172,13 @@ class Subject:
         if self.cache:
             if trial_id not in self.neural_data_cache: self.cache_neural_data(trial_id)
             electrode_id = self.electrode_ids[electrode_label]
-            return self.neural_data_cache[trial_id][electrode_id][window_from:window_to]
+            data = self.neural_data_cache[trial_id][electrode_id][window_from:window_to]
+            return data
         else:
             if trial_id not in self.h5_files: self.open_neural_data_file(trial_id)
             neural_data_key = self.h5_neural_data_keys[electrode_label]
-            return self.h5_files[trial_id]['data'][neural_data_key][window_from:window_to].astype(self.dtype)
+            data = self.h5_files[trial_id]['data'][neural_data_key][window_from:window_to]
+            return data
 
     def get_all_electrode_data(self, trial_id, window_from=None, window_to=None):
         if trial_id not in self.electrode_data_length: self.load_neural_data(trial_id)
@@ -204,7 +208,7 @@ if __name__ == "__main__":
 
     print_memory_usage("Initial RAM usage")
     
-    subject = Subject(3, cache=True, dtype=bfloat16)
+    subject = BrainTreebankSubject(3, cache=True, dtype=bfloat16)
     print_memory_usage("After creating Subject")
     
     # Print size of major attributes
@@ -240,3 +244,5 @@ if __name__ == "__main__":
     print_memory_usage("After garbage collection")
 
     print(f"Data shape: {data.shape}")
+
+Subject = BrainTreebankSubject # alias for convenience
