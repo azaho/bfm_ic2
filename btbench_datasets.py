@@ -5,8 +5,6 @@ import pandas as pd
 import os
 from btbench_config import *
 from braintreebank_subject import Subject
-import ml_dtypes
-
 
 single_float_variables_name_remapping = {
     "pitch": "pitch",
@@ -157,10 +155,7 @@ class BrainTreebankSubjectTrialBenchmarkDataset(Dataset):
 
     def _get_neural_data(self, window_from, window_to):
         input = self.subject.get_all_electrode_data(self.trial_id, window_from=window_from, window_to=window_to)
-        if input.dtype == ml_dtypes.bfloat16:
-            input = input.astype(np.float32) # necessary for converting to torch.Tensor; does not support ml_dtypes.bfloat16 numpy extension
-        input = torch.from_numpy(input).to(dtype=self.dtype)
-        return input
+        return input.to(dtype=self.dtype)
 
     def _simple_float_variable__getitem__(self, idx):
         word_index = self.extreme_indices[idx]
@@ -168,7 +163,7 @@ class BrainTreebankSubjectTrialBenchmarkDataset(Dataset):
         est_idx = int(row['est_idx']) - int(START_NEURAL_DATA_BEFORE_WORD_ONSET * SAMPLING_RATE)
         est_end_idx = int(row['est_idx']) + int(END_NEURAL_DATA_AFTER_WORD_ONSET * SAMPLING_RATE)
         input = self._get_neural_data(est_idx, est_end_idx)
-        return input, self.extreme_labels[idx]
+        return input, self.extreme_labels[idx].item()
 
     def _onset_speech__getitem__(self, idx):
         if idx % 2 == 0: # even indices are positive samples
@@ -192,7 +187,7 @@ class BrainTreebankSubjectTrialBenchmarkDataset(Dataset):
         est_idx = int(row['est_idx']) - int(START_NEURAL_DATA_BEFORE_WORD_ONSET * SAMPLING_RATE)
         est_end_idx = int(row['est_idx']) + int(END_NEURAL_DATA_AFTER_WORD_ONSET * SAMPLING_RATE)
         input = self._get_neural_data(est_idx, est_end_idx)
-        return input, self.class_labels[idx]
+        return input, self.class_labels[idx].item()
         
         
     def __len__(self):

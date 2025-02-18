@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from model_utils import BFModule
+from model_model import BFModule
     
 
 class ElectrodeEmbeddings(BFModule):

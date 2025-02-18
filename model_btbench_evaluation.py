@@ -2,6 +2,7 @@ from torch.utils.data import DataLoader
 import sklearn 
 import numpy as np
 from btbench_train_test_splits import generate_splits_SS_SM
+from utils import log
 
 # Evaluation class for Same Subject Same Movie (SS-SM), on btbench evals
 class FrozenModelEvaluation_SS_SM():
@@ -36,36 +37,36 @@ class FrozenModelEvaluation_SS_SM():
                 evaluation_datasets[(eval_name, subject.subject_identifier, trial_id)] = splits
         self.evaluation_datasets = evaluation_datasets
 
-    def _evaluate_on_dataset(self, model, electrode_embed, train_dataset, test_dataset, verbose=False):
+    def _evaluate_on_dataset(self, model, electrode_embed, train_dataset, test_dataset, log_priority=0):
         train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=False)
         test_dataloader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False)
         device, dtype = model.device, model.dtype
         X_train, y_train = [], []
-        if verbose: print('generating frozen features')
+        log('generating frozen features', priority=log_priority, indent=2)
         for i, (batch_input, batch_label) in enumerate(train_dataloader):
             batch_input = batch_input.to(device, dtype=dtype)
-            if verbose: print(f'generating frozen features for batch {i} of {len(train_dataloader)}')
+            log(f'generating frozen features for batch {i} of {len(train_dataloader)}', priority=log_priority, indent=2)
             features = model.generate_frozen_evaluation_features(batch_input, electrode_embed).detach().cpu().float().numpy()
-            if verbose: print(f'done generating frozen features for batch {i} of {len(train_dataloader)}')
+            log(f'done generating frozen features for batch {i} of {len(train_dataloader)}', priority=log_priority, indent=2)
             X_train.append(features)
             y_train.append(batch_label.numpy())
 
         X_test, y_test = [], []
         for i, (batch_input, batch_label) in enumerate(test_dataloader):
             batch_input = batch_input.to(device, dtype=dtype)
-            if verbose: print(f'generating frozen features for batch {i} of {len(test_dataloader)}')
+            log(f'generating frozen features for batch {i} of {len(test_dataloader)}', priority=log_priority, indent=2)
             features = model.generate_frozen_evaluation_features(batch_input, electrode_embed).detach().cpu().float().numpy()
-            if verbose: print(f'done generating frozen features for batch {i} of {len(test_dataloader)}')
+            log(f'done generating frozen features for batch {i} of {len(test_dataloader)}', priority=log_priority, indent=2)
             X_test.append(features)
             y_test.append(batch_label.numpy())
-        if verbose: print('done generating frozen features')
+        log('done generating frozen features', priority=log_priority, indent=2)
 
-        if verbose: print("creating numpy arrays")
+        log("creating numpy arrays", priority=log_priority, indent=2)
         X_train = np.concatenate(X_train)
         y_train = np.concatenate(y_train)
         X_test = np.concatenate(X_test)
         y_test = np.concatenate(y_test)
-        if verbose: print("done creating numpy arrays")
+        log("done creating numpy arrays", priority=log_priority, indent=2)
 
         regressor = sklearn.linear_model.LogisticRegression(
             random_state=self.regression_random_state, 
@@ -75,27 +76,27 @@ class FrozenModelEvaluation_SS_SM():
             tol=self.regression_tol
         )
 
-        if verbose: print('fitting regressor')
+        log('fitting regressor', priority=log_priority, indent=2)
         regressor.fit(X_train, y_train)
-        if verbose: print('done fitting regressor')
+        log('done fitting regressor', priority=log_priority, indent=2)
         regressor_pred = regressor.predict_proba(X_test)[:, 1]
         regressor_pred_class = regressor.predict(X_test)
         auroc = sklearn.metrics.roc_auc_score(y_test, regressor_pred, multi_class='ovr')
         accuracy = sklearn.metrics.accuracy_score(y_test, regressor_pred_class)
-        if verbose: print('done evaluating')
+        log('done evaluating', priority=log_priority, indent=2)
         return auroc, accuracy
     
-    def _evaluate_on_metric_cv(self, model, electrode_embed, train_datasets, test_datasets, verbose=False, quick_eval=False):
+    def _evaluate_on_metric_cv(self, model, electrode_embed, train_datasets, test_datasets, log_priority=0, quick_eval=False):
         auroc_list, accuracy_list = [], []
         for train_dataset, test_dataset in zip(train_datasets, test_datasets):
-            auroc, accuracy = self._evaluate_on_dataset(model, electrode_embed, train_dataset, test_dataset, verbose=verbose)
+            auroc, accuracy = self._evaluate_on_dataset(model, electrode_embed, train_dataset, test_dataset, log_priority=log_priority)
             auroc_list.append(auroc)
             accuracy_list.append(accuracy)
-            if quick_eval:
-                break
+            if quick_eval: break
         return np.mean(auroc_list), np.mean(accuracy_list)
     
-    def evaluate_on_all_metrics(self, model, electrode_embedding, verbose=False, quick_eval=False):
+    def evaluate_on_all_metrics(self, model, electrode_embedding, log_priority=0, quick_eval=False):
+        log('evaluating on all metrics', priority=log_priority, indent=1)
         evaluation_results = {}
         for subject_identifier in self.all_subject_identifiers:
             electrode_embed = electrode_embedding(subject_identifier).to(model.device, model.dtype)
@@ -103,10 +104,11 @@ class FrozenModelEvaluation_SS_SM():
                 trial_ids = [trial_id for subject, trial_id in self.subject_trials if subject.subject_identifier == subject_identifier]
                 for trial_id in trial_ids:
                     splits = self.evaluation_datasets[(eval_name, subject_identifier, trial_id)]
-                    auroc, accuracy = self._evaluate_on_metric_cv(model, electrode_embed, splits[0], splits[1], verbose=verbose, quick_eval=quick_eval)
+                    auroc, accuracy = self._evaluate_on_metric_cv(model, electrode_embed, splits[0], splits[1], log_priority=log_priority+1, quick_eval=quick_eval)
                     evaluation_results[(eval_name, subject_identifier, trial_id)] = (auroc, accuracy)
         
         evaluation_results_strings = self._format_evaluation_results_strings(evaluation_results)
+        log('done evaluating on all metrics', priority=log_priority, indent=1)
         return evaluation_results_strings
 
     def _format_evaluation_results_strings(self, evaluation_results):

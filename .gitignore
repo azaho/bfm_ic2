@@ -3,6 +3,7 @@ __pycache__/
 .env
 wandb/
 r/
+_experiments_future.py
 
 braintreebank/
 braintreebank_zip/

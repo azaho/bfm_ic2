@@ -1,16 +1,75 @@
 import torch
 import torch.nn as nn
-from model_utils import BFModule
 
-# the Model class needs to accept a batch of shape (batch_size, n_electrodes, n_samples)
-#    where n_samples = sample_timebin_size * n_timebins
-# Model needs to output a TUPLE where the first element is a batch 
-#   of shape (batch_size, n_timebins, d_output) - the model's output
-#   the rest can be anything
-# 
-# Model needs to contain a method calculate_pretrain_loss(self, x, y) 
+class BFModule(nn.Module):
+    """
+    This module is a base class for all modules that need to be compatible with this project.
+    It ensures that the module stores its current device and dtype.
+    """
+    def __init__(self):
+        super().__init__()
+        self._device = None
+        self._dtype = None
+    def to(self, *args, **kwargs):
+        output = super().to(*args, **kwargs)
+        # Extract device and dtype from args/kwargs
+        device = next((torch.device(arg) for arg in args if isinstance(arg, (torch.device, str))), 
+                     kwargs.get('device', None))
+        dtype = next((arg for arg in args if isinstance(arg, torch.dtype)),
+                    kwargs.get('dtype', None))
+        if device is not None: self._device = device 
+        if dtype is not None: self._dtype = dtype
+        return output
+    @property
+    def device(self):
+        if self._device is None:
+            self._device = next(self.parameters()).device
+        return self._device
+    @property 
+    def dtype(self):
+        if self._dtype is None:
+            self._dtype = next(self.parameters()).dtype
+        return self._dtype
 
-class LinearModel(BFModule):
+class BFModel(BFModule):
+    """Base model class for brain-feature models.
+    
+    The model accepts batches of shape (batch_size, n_electrodes, n_samples) where
+    n_samples = sample_timebin_size * n_timebins.
+
+    The model's forward pass must return a tuple where:
+    - First element is a batch of shape (batch_size, n_timebins, d_output) containing the model's output
+    - Remaining elements can be anything
+
+    The model must implement calculate_pretrain_loss(self, x, y) for pretraining.
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x, electrode_embeddings):
+        pass
+
+    def calculate_pretrain_loss(self, electrode_embeddings, batch):
+        pass
+
+    def generate_frozen_evaluation_features(self, batch, electrode_embeddings):
+        pass
+
+    def calculate_pretrain_test_loss(self, electrode_embeddings, test_dataloader):
+        loss = 0
+        n_batches = 0
+        for batch, (subject_identifier, trial_id) in test_dataloader:
+            trial_id, subject_identifier = trial_id[0], subject_identifier[0] # they are all the same in a batch by design
+            
+            electrode_embed = electrode_embeddings(subject_identifier)
+            batch = batch.to(self.device, dtype=self.dtype)
+            electrode_embed = electrode_embed.to(self.device, dtype=self.dtype)
+
+            loss += self.calculate_pretrain_loss(electrode_embed, batch)
+            n_batches += 1
+        return loss / n_batches
+
+class LinearModel(BFModel):
     def __init__(self, d_model, sample_timebin_size):
         super(LinearModel, self).__init__()
         self.sample_timebin_size = sample_timebin_size
@@ -30,7 +89,7 @@ class LinearModel(BFModule):
 
         return x, self.linear_dynamics(x)
         
-    def calculate_loss(self, electrode_embed, batch):
+    def calculate_pretrain_loss(self, electrode_embed, batch):
         # electrode_embeddings is a batch of shape (n_electrodes, sample_timebin_size, d_model)
         n_electrodes, sample_timebin_size, d_model = electrode_embed.shape
         batch_size, n_electrodes, n_samples = batch.shape
@@ -120,7 +179,7 @@ class BFMModel_Scuffed(BFModule):
         time_output = time_output.view(batch_size, n_timebins, self.transformer_config['dim_output']) 
         return time_output, electrode_output
 
-    def calculate_loss(self, electrode_embed, batch):
+    def calculate_pretrain_loss(self, electrode_embed, batch):
         # electrode_embeddings is a batch of shape (n_electrodes, sample_timebin_size, d_model)
         batch_size, n_electrodes, n_samples = batch.shape
         n_timebins = n_samples // self.sample_timebin_size
