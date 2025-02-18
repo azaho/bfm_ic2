@@ -113,7 +113,7 @@ class LinearModel(BFModel):
         return frozen_features
     
 
-from training_architecture_juice import ElectrodeTransformer, TimeTransformer
+from model_old_train_arch import ElectrodeTransformer, TimeTransformer
 class BFMModel_Scuffed(BFModule):
     def __init__(self, d_model, sample_timebin_size):
         super().__init__()
