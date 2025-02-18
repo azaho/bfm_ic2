@@ -97,15 +97,7 @@ class BFMModel_Scuffed(BFModule):
         
         # Calculate FFT for each timebin
         x = x.reshape(-1, self.sample_timebin_size)
-        x = torch.stft(
-            x,
-            n_fft=self.sample_timebin_size,
-            hop_length=self.sample_timebin_size,  # No overlap
-            window=torch.ones(self.sample_timebin_size, device=x.device),
-            normalized=False,
-            center=False,
-            return_complex=True
-        )
+        x = torch.fft.rfft(x, dim=-1)  # Using rfft for real-valued input
         x = x.reshape(batch_size, n_electrodes, n_timebins, -1)  # shape: (batch_size, n_electrodes, n_timebins, n_freq)
         x = x[:, :, :, :self.transformer_config['dim_input']]
         # Calculate magnitude (equivalent to scipy.signal.stft's magnitude)

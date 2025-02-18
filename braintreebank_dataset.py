@@ -29,7 +29,7 @@ class BrainTreebankSubjectTrialDataset(Dataset):
         start_idx = idx * self.window_size
         end_idx = start_idx + self.window_size
         window = self.subject.get_all_electrode_data(self.trial_id, start_idx, end_idx)
-        if self.dtype == ml_dtypes.bfloat16:
+        if window.dtype == ml_dtypes.bfloat16:
             window = window.astype(np.float32) # XXX this is a hack to make ml_dtypes work with torch tensor conversion
         if self.output_subject_trial_id:
             return torch.from_numpy(window).to(dtype=self.dtype), (self.subject.subject_identifier, self.trial_id)
