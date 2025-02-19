@@ -42,21 +42,22 @@ class FrozenModelEvaluation_SS_SM():
         test_dataloader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False)
         device, dtype = model.device, model.dtype
         X_train, y_train = [], []
-        log('generating frozen features', priority=log_priority, indent=2)
+        log('generating frozen train features', priority=log_priority, indent=2)
         for i, (batch_input, batch_label) in enumerate(train_dataloader):
             batch_input = batch_input.to(device, dtype=dtype)
-            log(f'generating frozen features for batch {i} of {len(train_dataloader)}', priority=log_priority, indent=2)
+            log(f'generating frozen features for batch {i} of {len(train_dataloader)}', priority=log_priority, indent=3)
             features = model.generate_frozen_evaluation_features(batch_input, electrode_embed).detach().cpu().float().numpy()
-            log(f'done generating frozen features for batch {i} of {len(train_dataloader)}', priority=log_priority, indent=2)
+            log(f'done generating frozen features for batch {i} of {len(train_dataloader)}', priority=log_priority, indent=3)
             X_train.append(features)
             y_train.append(batch_label.numpy())
 
         X_test, y_test = [], []
+        log('generating frozen test features', priority=log_priority, indent=2)
         for i, (batch_input, batch_label) in enumerate(test_dataloader):
             batch_input = batch_input.to(device, dtype=dtype)
-            log(f'generating frozen features for batch {i} of {len(test_dataloader)}', priority=log_priority, indent=2)
+            log(f'generating frozen features for batch {i} of {len(test_dataloader)}', priority=log_priority, indent=3)
             features = model.generate_frozen_evaluation_features(batch_input, electrode_embed).detach().cpu().float().numpy()
-            log(f'done generating frozen features for batch {i} of {len(test_dataloader)}', priority=log_priority, indent=2)
+            log(f'done generating frozen features for batch {i} of {len(test_dataloader)}', priority=log_priority, indent=3)
             X_test.append(features)
             y_test.append(batch_label.numpy())
         log('done generating frozen features', priority=log_priority, indent=2)

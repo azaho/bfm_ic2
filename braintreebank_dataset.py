@@ -35,6 +35,18 @@ class BrainTreebankSubjectTrialDataset(Dataset):
         else: return window
 
 
+def _load_single_dataset(args):
+        all_subjects, subject_identifier, trial_id, n_samples, dtype = args
+        log(f"loading dataset for {subject_identifier}_{trial_id}...", indent=1, priority=1)
+        dataset = BrainTreebankSubjectTrialDataset(
+            all_subjects[subject_identifier], 
+            trial_id, 
+            n_samples, 
+            dtype=dtype, 
+            output_subject_trial_id=True
+        )
+        log(f"finished loading dataset for {subject_identifier}_{trial_id}", indent=1, priority=1)
+        return dataset
 def load_dataloaders(train_subject_trials, eval_subject_trials, p_test, n_samples, dtype, batch_size, num_workers_init=14, num_workers_dataloaders=12, cache=True, allow_corrupted=False):
     # Step 1: Load all subjects
     all_subject_identifiers = [subject_identifier for subject_identifier, trial_id in train_subject_trials]
@@ -47,22 +59,11 @@ def load_dataloaders(train_subject_trials, eval_subject_trials, p_test, n_sample
         all_subjects[subject_identifier] = BrainTreebankSubject(subject_id, dtype=dtype, cache=cache, allow_corrupted=allow_corrupted)
 
     # Step 2: Load all datasets in parallel
-    n_processes = min(num_workers_init, len(all_subject_identifiers))
-    log(f"Loading the datasets in parallel... with {n_processes} processes")
-    def load_single_dataset(args):
-        subject_identifier, trial_id = args
-        log(f"loading dataset for {subject_identifier}_{trial_id}...", indent=1)
-        dataset = BrainTreebankSubjectTrialDataset(
-            all_subjects[subject_identifier], 
-            trial_id, 
-            n_samples, 
-            dtype=dtype, 
-            output_subject_trial_id=True
-        )
-        log(f"finished loading dataset for {subject_identifier}_{trial_id}", indent=1)
-        return dataset
+    n_processes = min(num_workers_init, len(train_subject_trials))
+    log(f"Loading {len(train_subject_trials)} datasets in parallel... with {n_processes} processes")
+    pool_params = [(all_subjects, subject_identifier, trial_id, n_samples, dtype) for subject_identifier, trial_id in train_subject_trials]
     with Pool(processes=n_processes) as pool:
-        datasets = pool.map(load_single_dataset, train_subject_trials)
+        datasets = pool.map(_load_single_dataset, pool_params)
     log("Done.")
 
     # Step 3: Split into train and test

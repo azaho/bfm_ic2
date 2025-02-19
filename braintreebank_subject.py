@@ -192,6 +192,22 @@ class BrainTreebankSubject:
             for electrode_label, electrode_id in self.electrode_ids.items():
                 all_electrode_data[electrode_id] = self.get_electrode_data(electrode_label, trial_id, window_from=window_from, window_to=window_to)
             return all_electrode_data
+        
+
+    # XXX decide whether we need this
+    # def calculate_normalizing_params_spectrogram(self, trial_id, sample_timebin_size, device, window_to=None):
+    #     """
+    #         Calculate the normalizing params for the spectrograms for a given trial, per frequency bin.
+    #     """
+    #     all_electrode_data = self.get_all_electrode_data(trial_id, window_to=window_to)
+    #     n_timebins = all_electrode_data.shape[1] // sample_timebin_size
+    #     all_electrode_data = all_electrode_data[:, :n_timebins*sample_timebin_size].reshape(len(self.electrode_labels), n_timebins, sample_timebin_size)
+    #     all_electrode_data = all_electrode_data.to(device, dtype=torch.float32)
+
+    #     spectrogram = torch.fft.fft(all_electrode_data, dim=-1)
+    #     spectrogram = torch.abs(spectrogram)
+
+    #     return spectrogram.mean(dim=0), spectrogram.std(dim=0)
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ class BFModel(BFModule):
     """Base model class for brain-feature models.
     
     The model accepts batches of shape (batch_size, n_electrodes, n_samples) where
+    and electrode embedding of shape (n_electrodes, d_model).
     n_samples = sample_timebin_size * n_timebins.
 
     The model's forward pass must return a tuple where:
@@ -113,8 +114,56 @@ class LinearModel(BFModel):
         return frozen_features
     
 
-from model_old_train_arch import ElectrodeTransformer, TimeTransformer
-class BFMModel_Scuffed(BFModule):
+from model_transformers import Transformer
+class TransformerModel(BFModel):
+    def __init__(self, d_model, sample_timebin_size, n_layers_electrode=5, n_layers_time=5, frequency_cutoff_dim=64):
+        super().__init__()
+        self.d_model = d_model
+        self.sample_timebin_size = sample_timebin_size
+        self.frequency_cutoff_dim = frequency_cutoff_dim
+
+        self.electrode_transformer = Transformer(d_input=frequency_cutoff_dim, d_model=d_model, d_output=d_model, n_layer=n_layers_electrode, n_head=12, causal=False, rope=False, cls_token=True)
+        self.time_transformer = Transformer(d_input=d_model, d_model=d_model, d_output=d_model, n_layer=n_layers_time, n_head=12, causal=True, rope=True, cls_token=False)
+
+    def _forward_fft(self, x):
+        # x is of shape (batch_size, n_electrodes, n_samples)
+        #   where n_samples = sample_timebin_size * n_timebins
+        batch_size, n_electrodes, n_samples = x.shape
+        n_timebins = n_samples // self.sample_timebin_size
+        
+        # Calculate FFT for each timebin
+        x = x.view(-1, self.sample_timebin_size)
+        x = x.to(dtype=torch.float32)  # Convert to float32 for FFT
+        x = torch.fft.rfft(x, dim=-1)  # Using rfft for real-valued input
+        x = x[:, :self.frequency_cutoff_dim]
+        x = x.view(batch_size, n_electrodes, n_timebins, -1)  # shape: (batch_size, n_electrodes, n_timebins, frequency_cutoff_dim)
+        
+        # Calculate magnitude (equivalent to scipy.signal.stft's magnitude)
+        x = torch.abs(x)
+        # Convert to power in dB
+        # x = 20 * torch.log10(x.pow(2) + 1e-5)  # adding small constant to prevent log(0)
+        # do scuffed log (like in my previous code)
+        x = 10 * torch.log(x + 1e-5)
+        return x.to(dtype=self.dtype)  # Convert back to original dtype (bfloat16)
+    
+    def forward(self, x, electrode_embed, only_electrode_output=False):
+        # electrode_embeddings is of shape (n_electrodes, d_model)
+        # x is of shape (batch_size, n_electrodes, n_samples)
+        #   where n_samples = sample_timebin_size * n_timebins
+
+        x = self._forward_fft(x) # shape: (batch_size, n_electrodes, n_timebins, frequency_cutoff_dim)
+        batch_size, n_electrodes, n_timebins, _ = x.shape
+
+        electrode_output = self.electrode_transformer(x, electrode_embed) # shape: (batch_size, n_electrodes+1, n_timebins, d_model)
+        electrode_output = electrode_output[:, 0:1, :, :] # just the CLS token. Shape: (batch_size, 1, n_timebins, d_model)
+        if only_electrode_output:
+            return electrode_output, None
+        
+        time_output = self.time_transformer(electrode_output) # shape: (batch_size, 1, n_timebins, d_model)
+        return time_output, electrode_output
+
+import model_old_train_arch
+class BFMModel_Scuffed(BFModel):
     def __init__(self, d_model, sample_timebin_size):
         super().__init__()
         self.d_model = d_model
@@ -137,11 +186,17 @@ class BFMModel_Scuffed(BFModule):
         transformer_config['n_layers_electrode'] = transformer_config['n_layers']//2
         transformer_config['n_layers_time'] = transformer_config['n_layers'] - transformer_config['n_layers_electrode']
         transformer_config['rope_encoding_scale'] = transformer_config['max_n_time_bins']
-        self.electrode_transformer = ElectrodeTransformer(config=transformer_config)
-        self.time_transformer = TimeTransformer(config=transformer_config)
+        self.electrode_transformer = model_old_train_arch.ElectrodeTransformer(config=transformer_config)
+        self.time_transformer = model_old_train_arch.TimeTransformer(config=transformer_config)
         self.temperature_param = nn.Parameter(torch.tensor(1.0))
         self.transformer_config = transformer_config
 
+        # Initialize frequency scales to make amplitudes roughly uniform across frequencies
+        # Each index i corresponds to frequency i*8 Hz
+        # Scale approximately proportional to 1/f to counteract natural power spectrum falloff
+        freqs = torch.arange(1, transformer_config['n_freq_features'] + 1)
+        _frequency_scales = freqs #* torch.sqrt(freqs)
+        self.frequency_scales = nn.Parameter(_frequency_scales) #XXX currently your frequencies are multiplied by 64
 
 
     def forward(self, x, electrode_embed):
@@ -156,9 +211,12 @@ class BFMModel_Scuffed(BFModule):
         
         # Calculate FFT for each timebin
         x = x.reshape(-1, self.sample_timebin_size)
+        x = x.to(dtype=torch.float32)  # Convert to float32 for FFT
         x = torch.fft.rfft(x, dim=-1)  # Using rfft for real-valued input
+        x = x[:, :self.transformer_config['dim_input']]
+        x *= self.frequency_scales.unsqueeze(0) # XXX normalization per frequency
+
         x = x.reshape(batch_size, n_electrodes, n_timebins, -1)  # shape: (batch_size, n_electrodes, n_timebins, n_freq)
-        x = x[:, :, :, :self.transformer_config['dim_input']]
         # Calculate magnitude (equivalent to scipy.signal.stft's magnitude)
         x = torch.abs(x).to(dtype=self.dtype) # XXX: anoying that need to do this, convert it back to bfloat16, fft outputs float32
         # Convert to power in dB

@@ -4,7 +4,7 @@ import torch
 import numpy as np
 
 max_log_priority = 10
-def log(message, priority=-1, indent=0):
+def log(message, priority=0, indent=0):
     if priority > max_log_priority: return
 
     current_time = time.strftime("%H:%M:%S")
