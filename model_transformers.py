@@ -66,7 +66,7 @@ class CausalSelfAttention(nn.Module):
         v = self.c_v(x).view(B, T, self.n_head, self.head_dim)
         if self.rope:
             cos, sin = self.rotary(q)
-        q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),)) # QK norm suggested by @Grad62304977 # XXX -- remove if too much memory consumption
+        #q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),)) # QK norm suggested by @Grad62304977 # XXX -- remove if too much memory consumption
         if self.rope:
             q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), is_causal=self.causal, scale=1/q.shape[-1]) # XXX usually does **0.5 but this is the Modula way! (https://docs.modula.systems/faq/ --- alignment)
@@ -116,9 +116,9 @@ class Transformer(BFModule):
         self.causal = causal
         self.rope = rope
 
-        self.cls_token = nn.Parameter(torch.randn(1, 1, 1, d_model)) if cls_token else None
+        self.cls_token = nn.Parameter(torch.randn(d_model)) if cls_token else None
 
-        self.embed = nn.Linear(d_input, d_model, bias=False), # XXX --- removed bias; if add bias back, change rms norm to layernorm in block
+        self.embed = nn.Linear(d_input, d_model, bias=False) # XXX --- removed bias; if add bias back, change rms norm to layernorm in block
         self.blocks = nn.ModuleList([Block(n_layer, d_model, n_head, causal, rope) for _ in range(n_layer)])
         self.output_proj = nn.Linear(d_model, d_output, bias=False)
 
@@ -128,26 +128,21 @@ class Transformer(BFModule):
         self.embed.weight.data = orthogonalize(self.embed.weight.data)
         self.output_proj.weight.data = orthogonalize(self.output_proj.weight.data)
 
-    def forward(self, x, electrode_embed=None):
-        # electrode_embeddings is of shape (n_electrodes, d_model)
-        # x is of shape (batch_size, n_electrodes, n_timebins, d_input)
-        #   where n_samples = sample_timebin_size * n_timebins
+    def forward(self, x):
+        # x is of shape (batch_size, seq_len, d_input)
 
-        batch_size, n_electrodes, n_timebins, d_input = x.shape
+        batch_size, seq_len, d_input = x.shape
 
-        x = self.embed(x)  # shape: (batch_size, n_electrodes, n_timebins, d_model)
-
-        if electrode_embed is not None:
-            x = x + electrode_embed.view(1, n_electrodes, 1, self.d_model) # shape: (batch_size, n_electrodes, n_timebins, d_model)
+        x = self.embed(x)  # shape: (batch_size, seq_len, d_model)
 
         if self.cls_token is not None:
             # Expand cls_token to match timebins dimension
-            cls_token = self.cls_token.expand(batch_size, 1, n_timebins, self.d_model)
-            x = torch.cat([x, cls_token], dim=1)  # shape: (batch_size, n_electrodes + 1, n_timebins, d_model)
+            cls_token = self.cls_token.expand(batch_size, 1, -1)
+            x = torch.cat([x, cls_token], dim=1)  # shape: (batch_size, seq_len + 1, d_model)
 
         for block in self.blocks:
             x = block(x)
         
-        x = self.output_proj(x) # shape: (batch_size, (n_electrodes) or (n_electrodes + 1), n_timebins, d_output)
+        x = self.output_proj(x) # shape: (batch_size, seq_len (+1), d_output)
 
         return x

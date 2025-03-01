@@ -5,7 +5,9 @@ import pandas as pd
 import numpy as np
 import torch
 
-from btbench_config import *
+ROOT_DIR = "/om2/user/zaho/braintreebank/braintreebank" # Root directory for the braintreebank data
+SAMPLING_RATE = 2048 # Sampling rate
+import os; os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # Disable file locking for HDF5 files. This is helpful for parallel processing.
 
 class BrainTreebankSubject:
     """ 

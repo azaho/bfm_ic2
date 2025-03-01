@@ -48,7 +48,8 @@ class Muon(torch.optim.Optimizer):
                 if group['nesterov']:
                     g = g.add(buf, alpha=momentum)
                 g = zeropower_backend(g, steps=group['backend_steps'])
+                # g.mul_(0.2 * max(g.shape[0], g.shape[1])**0.5) --- from moonlight paper
                 if group['weight_decay'] > 0:
-                    p.data.mul_(1 - lr * group['weight_decay'])
+                    p.data.mul_(1 - group['weight_decay'] * lr)
                 #p.data.add_(g, alpha=-lr * max(1, (g.shape[-2] / g.shape[-1]))**0.5) #XXX
                 p.data.add_(g, alpha=-lr)

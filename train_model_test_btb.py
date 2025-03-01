@@ -28,12 +28,12 @@ training_config = {
     # 'eval_subject_trials': eval_subject_trials,
 
     # MINI-BFM
-    'train_subject_trials': [("btbank1", 0), ("btbank1", 1), ("btbank2", 4), ("btbank2", 5), ("btbank3", 1), ("btbank3", 2), ("btbank7", 1), ("btbank10", 1)],
-    'eval_subject_trials': [("btbank1", 2), ("btbank2", 6), ("btbank3", 0), ("btbank7", 0), ("btbank10", 0)],
+    'train_subject_trials': [("btbank1", 0)],
+    'eval_subject_trials': [("btbank1", 0)],
     
     'data_dtype': torch.float16,
 
-    'random_string': "X2",
+    'random_string': "TEMP",
 }
 model_config = {
     'sample_timebin_size': 256,
@@ -61,9 +61,9 @@ model_config = {
 }
 cluster_config = {
     'save_model_every_n_epochs': 20,
-    'eval_model_every_n_epochs': 5,
+    'eval_model_every_n_epochs': 1,
 
-    'wandb_project': 'mini_bfm_exp',
+    'wandb_project': '',
     'timestamp': time.strftime("%Y%m%d_%H%M%S"),
 
     'cache_subjects': True,

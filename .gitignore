@@ -1,11 +1,11 @@
 .venv/
 __pycache__/
 .env
+.temp/
 wandb/
-r/
-_experiments_future.py
+logs/
 
-braintreebank/
-braintreebank_zip/
 models_data/
+
+btbench/
 btbench_subject_metadata/

@@ -1,9 +1,17 @@
 import torch
 from torch.utils.data import Dataset, ConcatDataset, DataLoader
 from braintreebank_subject import BrainTreebankSubject
-from utils import log
+from train_utils import log
 from multiprocessing import Pool
+import torch.multiprocessing as mp
 import random
+
+# Standardizing pretraining and evaluation subjects and trials
+all_subject_trials = [(1, 0), (1, 1), (1, 2), (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (3, 0), (3, 1), (3, 2), (4, 0), (4, 1), (4, 2), (5, 0), (6, 0), (6, 1), (6, 4), (7, 0), (7, 1), (8, 0), (9, 0), (10, 0), (10, 1)]
+all_subject_trials = [("btbank" + str(subject_id), trial_id) for subject_id, trial_id in all_subject_trials]
+eval_subject_trials = [(1, 2), (2, 6), (3, 0), (6, 4), (7, 0), (4, 1), (10, 0)]
+eval_subject_trials = [("btbank" + str(subject_id), trial_id) for subject_id, trial_id in eval_subject_trials]
+train_subject_trials = [st for st in all_subject_trials if st not in eval_subject_trials]
 
 class BrainTreebankSubjectTrialDataset(Dataset):
     def __init__(self, subject, trial_id, window_size, dtype=torch.float32, output_subject_trial_id=False):
@@ -36,7 +44,8 @@ class BrainTreebankSubjectTrialDataset(Dataset):
 
 
 def _load_single_dataset(args):
-        all_subjects, subject_identifier, trial_id, n_samples, dtype = args
+    all_subjects, subject_identifier, trial_id, n_samples, dtype = args
+    try:
         log(f"loading dataset for {subject_identifier}_{trial_id}...", indent=1, priority=1)
         dataset = BrainTreebankSubjectTrialDataset(
             all_subjects[subject_identifier], 
@@ -47,7 +56,11 @@ def _load_single_dataset(args):
         )
         log(f"finished loading dataset for {subject_identifier}_{trial_id}", indent=1, priority=1)
         return dataset
-def load_dataloaders(train_subject_trials, eval_subject_trials, p_test, n_samples, dtype, batch_size, num_workers_init=14, num_workers_dataloaders=12, cache=True, allow_corrupted=False):
+    except Exception as e:
+        log(f"Error loading dataset for {subject_identifier}_{trial_id}: {str(e)}", indent=1, priority=1)
+        raise e
+
+def load_dataloaders(train_subject_trials, eval_subject_trials, p_test, n_samples, dtype, batch_size, num_workers_init=14, num_workers_dataloaders=12, prefetch_factor=2, cache=True, allow_corrupted=False, test_num_workers_fraction=0.1):
     # Step 1: Load all subjects
     all_subject_identifiers = [subject_identifier for subject_identifier, trial_id in train_subject_trials]
     all_subject_identifiers += [subject_identifier for subject_identifier, trial_id in eval_subject_trials]
@@ -58,13 +71,25 @@ def load_dataloaders(train_subject_trials, eval_subject_trials, p_test, n_sample
         subject_id = int(subject_identifier.replace("btbank", ""))
         all_subjects[subject_identifier] = BrainTreebankSubject(subject_id, dtype=dtype, cache=cache, allow_corrupted=allow_corrupted)
 
-    # Step 2: Load all datasets in parallel
-    n_processes = min(num_workers_init, len(train_subject_trials))
-    log(f"Loading {len(train_subject_trials)} datasets in parallel... with {n_processes} processes")
+    # Step 2: Load all datasets in parallel (if cache is enabled)
     pool_params = [(all_subjects, subject_identifier, trial_id, n_samples, dtype) for subject_identifier, trial_id in train_subject_trials]
-    with Pool(processes=n_processes) as pool:
-        datasets = pool.map(_load_single_dataset, pool_params)
-    log("Done.")
+    if cache and num_workers_init > 1:
+        n_processes = min(num_workers_init, len(train_subject_trials))
+        log(f"Loading {len(train_subject_trials)} datasets in parallel... with {n_processes} processes")
+        datasets = []
+        mp.set_sharing_strategy('file_descriptor')
+        with Pool(processes=n_processes, maxtasksperchild=1) as pool:
+            try:
+                # Use imap instead of map_async for better progress tracking
+                for dataset in pool.imap(_load_single_dataset, pool_params):
+                    datasets.append(dataset)
+                log("Done loading all datasets.")
+            except Exception as e:
+                log(f"Error in parallel loading: {str(e)}")
+                pool.terminate()
+                raise e
+    else:
+        datasets = [_load_single_dataset(args) for args in pool_params]
 
     # Step 3: Split into train and test
     train_datasets = []
@@ -110,7 +135,7 @@ def load_dataloaders(train_subject_trials, eval_subject_trials, p_test, n_sample
         def __len__(self):
             return sum((size + self.batch_size - 1) // self.batch_size 
                     for size in self.dataset_sizes)
-    num_workers_dataloader_test = num_workers_dataloaders // 3
+    num_workers_dataloader_test = max(int(num_workers_dataloaders * test_num_workers_fraction), 1)
     num_workers_dataloader_train = num_workers_dataloaders - num_workers_dataloader_test
     train_dataloader = DataLoader(
         train_dataset,
@@ -121,7 +146,8 @@ def load_dataloaders(train_subject_trials, eval_subject_trials, p_test, n_sample
         ),
         num_workers=num_workers_dataloader_train,
         pin_memory=True,  # Pin memory for faster GPU transfer
-        persistent_workers=True  # Keep worker processes alive between iterations
+        persistent_workers=True,  # Keep worker processes alive between iterations
+        prefetch_factor=prefetch_factor
     )
     test_dataloader = DataLoader(
         test_dataset,
@@ -132,7 +158,8 @@ def load_dataloaders(train_subject_trials, eval_subject_trials, p_test, n_sample
         ),
         num_workers=num_workers_dataloader_test,
         pin_memory=True,
-        persistent_workers=True
+        persistent_workers=True,
+        prefetch_factor=prefetch_factor
     )
     return all_subjects, train_dataloader, test_dataloader
 
