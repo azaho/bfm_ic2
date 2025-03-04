@@ -97,6 +97,38 @@ class ElectrodeDataEmbeddingFFT(ElectrodeDataEmbedding):
         electrode_data = electrode_data + electrode_embeddings.view(1, n_electrodes, 1, self.d_model)
 
         return electrode_data # shape: (batch_size, n_electrodes, n_timebins, d_model)
+    
+
+    def load_state_dict(self, state_dict, strict=True):
+        # Extract all unique subject identifiers from the state dict keys
+        subject_ids = set()
+        for key in state_dict.keys():
+            if key.startswith('normalization_means.') or key.startswith('normalization_stds.') or key.startswith('electrode_embedding_class.embeddings.'):
+                subject_id = key.split('.')[-1]
+                subject_ids.add(subject_id)
+        
+        # Create dummy subjects to initialize the parameter dictionaries
+        for subject_id in subject_ids:
+            if subject_id not in self.normalization_means:
+                # Get shapes from the state dict
+                means_shape = state_dict[f'normalization_means.{subject_id}'].shape
+                stds_shape = state_dict[f'normalization_stds.{subject_id}'].shape
+                embedding_shape = state_dict[f'electrode_embedding_class.embeddings.{subject_id}'].shape
+                
+                # Initialize parameters with correct shapes
+                self.normalization_means[subject_id] = nn.Parameter(
+                    torch.zeros(means_shape, dtype=self.dtype, device=self.device),
+                    requires_grad=self.normalization_requires_grad
+                )
+                self.normalization_stds[subject_id] = nn.Parameter(
+                    torch.ones(stds_shape, dtype=self.dtype, device=self.device),
+                    requires_grad=self.normalization_requires_grad
+                )
+                self.electrode_embedding_class.embeddings[subject_id] = nn.Parameter(
+                    torch.zeros(embedding_shape, dtype=self.dtype, device=self.device)
+                )
+        # Now we can load the state dict normally
+        return super().load_state_dict(state_dict, strict=strict)
 
 class ElectrodeEmbedding(BFModule):
     def __init__(self, d_model):

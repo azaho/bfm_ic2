@@ -4,6 +4,70 @@ import torch
 import numpy as np
 import argparse
 
+def get_default_configs(random_string):
+    training_config = {
+        'n_epochs': 100,
+        'p_test': 0.1,
+
+        'optimizer': 'Muon',
+        'batch_size': 100,
+        'learning_rate': 0.002,
+        'weight_decay': 0.0,
+        'p_electrodes_per_stream': 0.5,
+        
+        # 'train_subject_trials': [("btbank3", 1), ("btbank3", 2)],
+        # 'eval_subject_trials': [("btbank3", 0)],
+        # 'train_subject_trials': train_subject_trials,
+        # 'eval_subject_trials': eval_subject_trials,
+
+        # MINI-BFM
+        'train_subject_trials': [("btbank1", 0), ("btbank1", 1), ("btbank2", 4), ("btbank2", 5), ("btbank3", 1), ("btbank3", 2), ("btbank7", 1), ("btbank10", 1)],
+        'eval_subject_trials': [("btbank1", 2), ("btbank2", 6), ("btbank3", 0), ("btbank7", 0), ("btbank10", 0)],
+        
+        'data_dtype': torch.float16,
+
+        'random_string': random_string,
+    }
+    model_config = {
+        'sample_timebin_size': 256,
+        'max_frequency_bin': 64,
+        'max_n_timebins': 24,
+        'max_n_electrodes': 128,
+
+        'init_normalization': True, # XXX rename to a more sensible name later
+
+        'electrode_embedding': {
+            'type': 'learned', # coordinate_init, noisy_coordinate, learned
+            'coordinate_noise_std': 0.0, # only relevant for noisy_coordinate type; note coordinates are normalized to be within [0,1]
+            'embedding_dim': None,
+        },
+
+        'dtype': torch.bfloat16,
+
+        'transformer': {
+            'd_model': 192,
+            'n_heads': 12,
+            'n_layers_electrode': 5,
+            'n_layers_time': 5,
+            'dropout': 0.2,
+        },
+    }
+    cluster_config = {
+        'save_model_every_n_epochs': 20,
+        'eval_model_every_n_epochs': 5,
+
+        'wandb_project': 'mini_bfm_exp',
+        'timestamp': time.strftime("%Y%m%d_%H%M%S"),
+
+        'cache_subjects': True,
+
+        'num_workers_init': 1,
+        'num_workers_dataloaders': 4,
+        'num_workers_eval': 4,
+        'prefetch_factor': 2,
+    }
+    return training_config, model_config, cluster_config
+
 
 def parse_configs_from_args(training_config, model_config, cluster_config):
     parser = argparse.ArgumentParser()

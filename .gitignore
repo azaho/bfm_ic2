@@ -4,6 +4,7 @@ __pycache__/
 .temp/
 wandb/
 logs/
+profiler_logs/
 
 models_data/
 

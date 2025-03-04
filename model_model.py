@@ -47,13 +47,13 @@ class BFModel(BFModule):
     def __init__(self):
         super().__init__()
 
-    def forward(self, x, electrode_embeddings):
+    def forward(self, electrode_embedded_data):
         pass
 
-    def calculate_pretrain_loss(self, electrode_embeddings, batch):
+    def calculate_pretrain_loss(self, electrode_embedded_data):
         pass
 
-    def generate_frozen_evaluation_features(self, batch, electrode_embeddings):
+    def generate_frozen_evaluation_features(self, electrode_embedded_data):
         pass
 
     def calculate_pretrain_test_loss(self, electrode_data_embedding_class, test_dataloader):
